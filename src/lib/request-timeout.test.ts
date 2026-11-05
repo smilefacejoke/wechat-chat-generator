@@ -1,10 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { withRequestTimeout } from './request-timeout'
-import { sendProductEnvelope } from './product-analytics'
-import { growthReason } from './growth-analytics'
 
-test('requests and telemetry work without AbortSignal.timeout', async () => {
+test('requests work without AbortSignal.timeout', async () => {
   const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout')!
   Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: undefined })
   try {
@@ -12,14 +10,6 @@ test('requests and telemetry work without AbortSignal.timeout', async () => {
       assert.equal(signal.aborted, false)
       return 'sent'
     }, 20), 'sent')
-    let calls = 0
-    const fetcher = (async (_url, options) => {
-      assert.ok(options?.signal instanceof AbortSignal)
-      calls++
-      return new Response('{}', { status: 202 })
-    }) as typeof fetch
-    assert.equal(await sendProductEnvelope('https://example.test', {}, fetcher), true)
-    assert.equal(calls, 1)
   } finally { Object.defineProperty(AbortSignal, 'timeout', descriptor) }
 })
 
@@ -27,7 +17,7 @@ test('timeout aborts pending work and is classified as timeout, not cancellation
   await assert.rejects(withRequestTimeout(signal => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
   }), 5), error => {
-    assert.equal(growthReason(error), 'timeout')
+    assert.equal((error as Error).name, 'TimeoutError')
     assert.match((error as Error).message, /请求超时/)
     return true
   })
@@ -57,7 +47,7 @@ test('caller cancellation and already-aborted signals remain cancellations', asy
     signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
   }), 100, parent.signal)
   parent.abort()
-  await assert.rejects(work, error => growthReason(error) === 'cancelled')
+  await assert.rejects(work, error => (error as Error).name === 'AbortError')
   let called = false
   await assert.rejects(withRequestTimeout(async () => { called = true }, 100, parent.signal), { name: 'AbortError' })
   assert.equal(called, false)

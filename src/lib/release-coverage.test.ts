@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runBatch, validateChat, type BatchJob } from './batch'
-import { reserveCheckoutWindow } from './payment-ui'
 
 const job = (id: string): BatchJob => ({ id, content: { title: id, body: '我：你好' }, mode: 'long', selected: true, state: 'ready' })
 
@@ -48,18 +47,3 @@ test('batch enforces message-count and Unicode title boundaries without dropping
   assert.throws(() => validateChat({ title: '太长的聊天', body: `${body}\n我：消息 151` }), /150/)
 })
 
-test('revoked checkout handles close safely and retain manual-link fallback', () => {
-  let closed = 0
-  const popup = {
-    opener: {}, closed: false,
-    document: { title: '', body: { textContent: '', style: { cssText: '' } } },
-    location: { replace: () => { throw Error('navigation blocked') } },
-    close: () => { closed++ },
-  }
-  const reserved = reserveCheckoutWindow(() => popup as unknown as Window)
-  assert.equal(reserved.navigate('https://openapi.alipay.com/gateway.do?order=test'), false)
-  assert.equal(closed, 1)
-  assert.equal(reserved.navigate('https://openapi.alipay.com/gateway.do?order=test'), false)
-  reserved.close()
-  assert.equal(closed, 1)
-})

@@ -26,7 +26,7 @@ export const DEFAULT_BATCH_PROMPT = {
 
 export function buildBatchPrompt({ topic, count, roles }: typeof DEFAULT_BATCH_PROMPT) {
   const groups = Number.isFinite(count) ? Math.min(batchLimit, Math.max(1, Math.trunc(count))) : DEFAULT_BATCH_PROMPT.count
-  return `请为“微信创作工具箱”的批量聊天图功能编写虚构的聊天素材，用于内容创作或产品演示，不冒充真实聊天记录。
+  return `请为“微信聊天生成器”的批量聊天图功能编写虚构的聊天素材，用于内容创作或产品演示，不冒充真实聊天记录。
 
 本次要求：
 - 主题 / 场景：${topic.trim() || DEFAULT_BATCH_PROMPT.topic}

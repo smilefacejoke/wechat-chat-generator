@@ -34,7 +34,7 @@ const snapshot: ChatProjectSnapshot = {
 }
 
 test('round trips a same-template URL without uploaded private media', async () => {
-  const url = await createSameTemplateUrl(snapshot, 'https://chat.laogao.xyz/')
+  const url = await createSameTemplateUrl(snapshot, 'https://example.com/')
   const restored = await readSameTemplateHash(new URL(url).hash)
   assert.ok(restored)
   assert.equal(restored.users[0].avatar, null)
@@ -56,7 +56,7 @@ test('ignores unrelated hash routes', async () => {
 })
 
 test('same-template links do not propagate another invitation or query credentials', async () => {
-  const url = await createSameTemplateUrl(snapshot, 'https://chat.laogao.xyz/?invite=other-person&token=private')
+  const url = await createSameTemplateUrl(snapshot, 'https://example.com/?invite=other-person&token=private')
   assert.equal(new URL(url).search, '')
   assert.ok(await readSameTemplateHash(new URL(url).hash))
 })
@@ -69,5 +69,5 @@ test('rejects compressed expansion beyond the byte budget and oversized URL befo
 
 test('refuses creating a template that its receiver cannot load', async () => {
   const large = { ...snapshot, messages: Array.from({ length: 250 }, (_, id) => ({ id, senderId: 1, type: 'text' as const, content: '长'.repeat(5000), params: {} })) }
-  await assert.rejects(createSameTemplateUrl(large, 'https://chat.laogao.xyz'), /内容过大/)
+  await assert.rejects(createSameTemplateUrl(large, 'https://example.com'), /内容过大/)
 })

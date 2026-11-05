@@ -18,10 +18,7 @@ import { BATCH_CHAT_EXAMPLE } from '@/lib/batch-prompt'
 import { beginExportLog } from '@/lib/export-log'
 import './BatchStudio.css'
 
-export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete, currentChat, loggedIn, onRequireLogin }: {
-  loggedIn: boolean; onRequireLogin: () => boolean;
-  remaining: number; unlimited?: boolean; onDebit: (id: string) => Promise<void>; onComplete: (id: string) => void; currentChat: ChatSnapshot
-}) {
+export function BatchStudio({ currentChat }: { currentChat: ChatSnapshot }) {
   const [text, setText] = useState(BATCH_CHAT_EXAMPLE)
   const [mode, setMode] = useState<CaptureMode>('long')
   const [jobs, setJobs] = useState<BatchJob[]>([])
@@ -64,7 +61,6 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
     } catch (e) { updateJob(active.id, { error: e instanceof Error ? e.message : '解析失败', state: 'error' }) }
   }
   async function generate() {
-    if (!onRequireLogin()) return;
     if (running.current || !selected.length) return
     if (!pending.length) { await download(); return }
     if (!confirmed) return
@@ -73,7 +69,7 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
       await runBatch(jobs, { render: async job => {
         if (job.dirty) throw new Error('对话已修改，请先更新本组预览。')
         return renderBatchChat(job)
-      }, debit: onDebit, cancelled: () => stop.current, update: () => setJobs([...jobs]), complete: () => {},
+      }, debit: async () => {}, cancelled: () => stop.current, update: () => setJobs([...jobs]), complete: () => {},
         failure: (job, error, stage) => {
           const log = beginExportLog({ tool: 'batch', mode: job.mode })
           log.action(job.id, stage === 'authorize' ? 'reservation_requested' : 'not_requested')
@@ -93,7 +89,6 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
     } finally { running.current = false; setBusy(false); setConfirmed(false) }
   }
   async function download(note = '') {
-    if (!onRequireLogin()) return;
     if (downloading.current) return
     const files = jobs.flatMap((j, index) => j.selected && j.state === 'done' && j.bytes ? [{ name: cardFilename(index, j.content.title), bytes: j.bytes }] : [])
     if (!files.length) return
@@ -101,19 +96,17 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
     const filename = `聊天截图_${files.length}组.zip`
     const log = beginExportLog({ tool: 'batch', mode: 'zip', filename, count: files.length, reportFailure: false })
     try {
-      await deliverBatch(jobs, { reserve: onDebit, deliver: () => {
+      await deliverBatch(jobs, { reserve: async () => {}, deliver: () => {
         const url = URL.createObjectURL(zipImages(files)); const link = document.createElement('a')
         link.href = url; link.download = filename
         try { link.click() } finally { setTimeout(() => URL.revokeObjectURL(url), 60000) }
-      }, complete: id => {
-        if (!delivered.current.has(id)) { onComplete(id); delivered.current.add(id) }
-      }, failed: (id, error) => {
+      }, complete: id => { delivered.current.add(id) }, failed: (id, error) => {
         const failure = beginExportLog({ tool: 'batch', mode: 'zip' }); failure.action(id); failure.stage('zip')
         void failure.finish('failed', 'ZIP 打包或下载操作失败', error)
       } })
-      void log.finish('download_requested', note || '重复下载不扣额度')
-      setMessage(`已发起 ZIP 下载，包含 ${files.length} 张聊天图。${note}若浏览器拦截下载，请点击“重新下载已完成 ZIP”，不再扣额度。`)
-    } catch (error) { log.stage('zip'); void log.finish('failed', 'ZIP 打包或下载操作失败', error); setMessage('打包失败，图片仍保留在本页。请减少勾选后重试，不会重复扣费。') }
+      void log.finish('download_requested', note)
+      setMessage(`已发起 ZIP 下载，包含 ${files.length} 张聊天图。${note}若浏览器拦截下载，请点击“重新下载已完成 ZIP”。`)
+    } catch (error) { log.stage('zip'); void log.finish('failed', 'ZIP 打包或下载操作失败', error); setMessage('打包失败，图片仍保留在本页。请减少勾选后重试。') }
     finally { downloading.current = false }
   }
   const locked = busy || !!active?.locked
@@ -121,12 +114,11 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
     <PhonePreview key={active.id} {...active.snapshot} onUpdateMessage={locked ? undefined : (id, content) => updateJob(active.id, { snapshot: { ...active.snapshot!, messages: active.snapshot!.messages.map(m => m.id === id ? { ...m, content } : m) } })} />
   </div> : <div className="batch-empty batch-preview-empty"><Layers3 size={32} /><h3>聊天图将在这里预览</h3><p>导入后逐组检查效果，使用与单张聊天相同的手机界面。</p><Button variant="outline" disabled={busy} onClick={addChats}>预览示例聊天</Button></div>
   const exportActions = <div className="batch-export" aria-label="聊天预览与导出">
-    <div className="batch-progress"><span>已完成 <strong>{successes.length} / {jobs.length}</strong> 组{failed.length ? ` · ${failed.length} 待重试` : ''}</span><span>{unlimited ? '会员不限次' : <>可用 <strong>{remaining}</strong> 次</>}</span><Progress max={Math.max(jobs.length, 1)} value={successes.length} aria-label="批量生成进度" className="batch-progress-bar" /></div>
-    <p>已选 {selected.length} 组，{unlimited ? '会员有效期内不扣次数包及奖励额度。' : <>本轮最多使用 <strong>{pending.length} 次</strong>额度。</>}</p>
-    {!loggedIn ? <Button variant="outline" onClick={onRequireLogin}>登录后导出 · 编辑内容保留</Button> : !unlimited && pending.length > remaining && <p className="batch-error">额度不足以完成全部任务，请减少勾选或补充额度。原编号重试仍可进行。</p>}
-    <label className="batch-confirm"><Checkbox checked={confirmed} disabled={busy || !pending.length} onCheckedChange={setConfirmed} aria-label={unlimited ? '确认导出所选聊天图片' : '确认按聊天图片张数使用额度'} /> {unlimited ? '确认导出所选聊天图片' : '我确认本批按聊天图片张数使用额度'}</label>
+    <div className="batch-progress"><span>已完成 <strong>{successes.length} / {jobs.length}</strong> 组{failed.length ? ` · ${failed.length} 待重试` : ''}</span><Progress max={Math.max(jobs.length, 1)} value={successes.length} aria-label="批量生成进度" className="batch-progress-bar" /></div>
+    <p>已选 {selected.length} 组。</p>
+    <label className="batch-confirm"><Checkbox checked={confirmed} disabled={busy || !pending.length} onCheckedChange={setConfirmed} aria-label="确认导出所选聊天图片" /> 确认导出所选聊天图片</label>
     <div className="batch-actions batch-export-actions">{busy ? <Button variant="outline" onClick={() => { stop.current = true }}><Square size={15} /> 停止后续任务</Button> : <Button disabled={!selected.length || (!!pending.length && !confirmed)} onClick={() => void generate()}>{pending.length && failed.length ? <RotateCcw size={16} /> : <Download size={16} />}{!pending.length && selected.length ? '重新下载已完成 ZIP' : failed.length ? '重试并导出 ZIP' : '导出所选 ZIP'}</Button>}{pending.length > 0 && selected.some(j => j.state === 'done') && <Button variant="outline" disabled={busy} onClick={() => download()}><Download size={16} /> 重新下载已完成 ZIP</Button>}</div>
-    <p className="batch-export-note">一键生成并自动下载。未完成项保留，重新下载不扣额度。</p>
+    <p className="batch-export-note">一键生成并自动下载。未完成项保留，可重新下载。</p>
     {message && <p className="batch-message" role="status">{message}</p>}
   </div>
   return <div className="batch-studio" id="batch-studio">
@@ -153,7 +145,7 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
         </div>
           {active?.snapshot && <div className="batch-chat-controls">
             <div className="batch-section-heading"><h3>编辑当前聊天</h3><span className="batch-count">第 {jobs.findIndex(job => job.id === active.id) + 1} 组</span></div>
-            {active.error && <p className="batch-error" role="alert">{active.error}</p>}{active.locked && <p className="batch-notice">已发起额度确认，内容已锁定，保证原编号重试不会重复扣费。</p>}
+            {active.error && <p className="batch-error" role="alert">{active.error}</p>}{active.locked && <p className="batch-notice">内容已锁定，完成后按原编号重试不会重复导出。</p>}
             <Tabs className="batch-detail-tabs" value={editSection} onValueChange={value => setEditSection(value as typeof editSection)}>
               <TabsList className="batch-detail-switch" variant="line" aria-label="批量聊天编辑面板">
                 <TabsTrigger value="content">聊天内容</TabsTrigger>
@@ -172,6 +164,6 @@ export function BatchStudio({ remaining, unlimited = false, onDebit, onComplete,
       </TabsContent>
       </Tabs>
     </WorkspacePanels>
-    <ConfirmDialog open={clearOpen} onOpenChange={setClearOpen} title="清空本批聊天？" description="清空会丢失本页图片与任务记录，请确认已经下载。重新导入会作为新任务使用额度。" confirmText="已下载，清空队列" onConfirm={() => { if (busy) return; setJobs([]); setActiveId(''); setConfirmed(false); setView('import'); setClearOpen(false) }} />
+    <ConfirmDialog open={clearOpen} onOpenChange={setClearOpen} title="清空本批聊天？" description="清空会丢失本页图片与任务记录，请确认已经下载。" confirmText="已下载，清空队列" onConfirm={() => { if (busy) return; setJobs([]); setActiveId(''); setConfirmed(false); setView('import'); setClearOpen(false) }} />
   </div>
 }

@@ -1,8 +1,8 @@
-import type { WechatTool } from './product-analytics'
+import type { WorkspaceToolId } from './workspace-tools'
 
-export type WorkspaceRoute = 'home' | 'resources' | 'exports' | WechatTool
+export type WorkspaceRoute = 'home' | 'resources' | 'exports' | WorkspaceToolId
 
-const tools: readonly WechatTool[] = ['chat', 'batch', 'moments', 'payment', 'redpacket', 'profile', 'group']
+const tools: readonly WorkspaceToolId[] = ['chat', 'batch', 'moments', 'payment', 'redpacket', 'profile', 'group']
 const fallbackBase = 'https://workspace.invalid/'
 
 function parseUrl(value: string): URL {
@@ -18,7 +18,7 @@ function parseUrl(value: string): URL {
 export function readWorkspaceRoute(url: string): WorkspaceRoute {
   const parsed = parseUrl(url)
   const tool = parsed.searchParams.get('tool')
-  if (tools.includes(tool as WechatTool)) return tool as WechatTool
+  if (tools.includes(tool as WorkspaceToolId)) return tool as WorkspaceToolId
   if (parsed.searchParams.get('page') === 'resources') return 'resources'
   if (parsed.searchParams.get('page') === 'exports') return 'exports'
 

@@ -1,5 +1,4 @@
-import type { WechatTool } from './product-analytics'
-import { trackProductEvent } from './product-analytics'
+import type { WorkspaceToolId } from './workspace-tools'
 import { browserFamily, exportReason, exportDetails, type ExportStage } from './export-diagnostics'
 
 export const exportLogDatabase = 'wechat-toolbox-export-log'
@@ -10,7 +9,7 @@ export type ExportOutcome = 'pending' | 'generated' | 'download_requested' | 'co
 export type ExportMode = 'standard' | 'long' | 'clipboard' | 'zip'
 export interface ExportLog {
   id: string
-  tool: WechatTool
+  tool: WorkspaceToolId
   mode: ExportMode
   filename: string
   count: number
@@ -103,7 +102,7 @@ export function createExportLogger(write: (record: ExportLog) => Promise<unknown
 }
 export const beginExportLog = createExportLogger(writeExportLog, () => {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(exportLogError))
-}, properties => trackProductEvent('export_failed', properties))
+})
 
 export function filterExportLogs(records: ExportLog[], filters: { tool: string; outcome: string; days: string; search: string }, now = new Date()) {
   const cutoff = new Date(now)

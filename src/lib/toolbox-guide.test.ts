@@ -6,9 +6,9 @@ import { parseBatch } from './batch'
 import { readWorkspaceRoute, workspaceHref } from './workspace-route'
 import { readFileSync } from 'node:fs'
 
-test('complete guide covers all seven editors plus account, export, saved work and recovery without broken relations', () => {
-  assert.equal(guideChapters.length, 17)
-  assert.equal(new Set(guideChapters.map(c => c.id)).size, 17)
+test('complete guide covers all seven editors plus export, saved work and recovery without broken relations', () => {
+  assert.equal(guideChapters.length, 15)
+  assert.equal(new Set(guideChapters.map(c => c.id)).size, 15)
   for (const tool of ['chat', 'batch', 'moments', 'payment', 'redpacket', 'profile', 'group']) {
     const chapter = guideChapters.find(c => c.id === tool)!
     assert.equal(chapter.route, tool); assert.ok(chapter.screenshot)
@@ -36,7 +36,7 @@ test('every runnable tutorial example works with the actual chat and batch parse
 })
 
 test('chapter links survive refresh, browser history, static subpaths and preserve invites', () => {
-  for (const base of ['https://chat.laogao.xyz/?tool=group&invite=a%2Bb&tag=1&tag=2', 'https://example.github.io/toolbox/?tool=chat&utm_source=test']) {
+  for (const base of ['https://example.com/?tool=group&invite=a%2Bb&tag=1&tag=2', 'https://example.github.io/toolbox/?tool=chat&utm_source=test']) {
     for (const chapter of guideChapters) {
       const href = guideHref(chapter.id, base)
       assert.equal(readWorkspaceRoute(href), 'resources')
@@ -57,7 +57,7 @@ test('chapter links survive refresh, browser history, static subpaths and preser
 test('search reaches instructions and limitations, supports multiple words and handles no results', () => {
   assert.ok(searchGuide('语音通话').some(c => c.id === 'messages'))
   assert.ok(searchGuide('清空聊天').some(c => c.id === 'chat'))
-  assert.ok(searchGuide('密码 验证码').some(c => c.id === 'account'))
+  assert.ok(searchGuide('下载 文件').some(c => c.id === 'exports'))
   assert.ok(searchGuide('ZIP').some(c => c.id === 'batch'))
   assert.equal(searchGuide('  ').length, guideChapters.length)
   assert.equal(searchGuide('nonexistent-x91y').length, 0)

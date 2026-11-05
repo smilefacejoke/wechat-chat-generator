@@ -5,7 +5,7 @@ import { readWorkspaceRoute, workspaceHref, type WorkspaceRoute } from './worksp
 const routes: WorkspaceRoute[] = ['home', 'resources', 'exports', 'chat', 'batch', 'moments', 'payment', 'redpacket', 'profile', 'group']
 
 test('every page survives direct loading and refresh on both root and static-host subpaths', () => {
-  for (const base of ['https://chat.laogao.xyz/', 'https://example.github.io/wechat-toolbox/']) {
+  for (const base of ['https://example.com/', 'https://example.github.io/wechat-toolbox/']) {
     for (const route of routes) {
       const href = workspaceHref(route, base)
       const directUrl = new URL(href, base)
@@ -23,7 +23,7 @@ test('legacy editor, resource, and shared-template links resolve to their work p
     ['#same=g1.encoded-payload', 'chat'],
   ]
   for (const [hash, route] of legacy) {
-    assert.equal(readWorkspaceRoute(`https://chat.laogao.xyz/?invite=abc${hash}`), route)
+    assert.equal(readWorkspaceRoute(`https://example.com/?invite=abc${hash}`), route)
   }
   assert.equal(readWorkspaceRoute('/?tool=batch#editor'), 'batch')
   assert.equal(readWorkspaceRoute('/?page=resources#same=g1.payload'), 'resources')

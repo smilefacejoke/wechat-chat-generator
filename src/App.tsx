@@ -6,7 +6,7 @@ import { useConfirm } from '@/lib/use-confirm';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { captureChatPhone } from '@/lib/capture-chat';
 import { copyOrDownload, downloadPng } from '@/lib/image-delivery';
-import { ArrowRight, MessageCircle, BookOpen, Check, ChevronRight, Download, Copy, FolderOpen, History, Image as ImageIcon, LayoutGrid, MessageSquare, Settings2, Share2, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, ChevronRight, Download, Copy, FolderOpen, History, Image as ImageIcon, LayoutGrid, MessageSquare, Settings2, Share2, ShieldCheck, UsersRound } from 'lucide-react';
 import { ImportPanel } from '@/components/ImportPanel';
 import { UserAvatarManager } from '@/components/UserAvatarManager';
 import { MessageEditor } from '@/components/MessageEditor';
@@ -17,26 +17,15 @@ import { guideHref, guideNavigationEvent, type GuideId } from '@/lib/toolbox-gui
 import { ProjectPanel } from '@/components/ProjectPanel';
 import { MomentsEditor } from '@/components/MomentsEditor';
 import { WechatSceneEditor } from '@/components/WechatSceneEditor';
-import { AccountDialog } from '@/components/AccountDialog';
-import { PaymentDialog } from '@/components/PaymentDialog';
 import { UpdateAnnouncement } from '@/components/UpdateAnnouncement';
-import { ShareDialog } from '@/components/ShareDialog';
 import { BatchStudio } from '@/components/BatchStudio';
 import { ExportLogPage } from '@/components/ExportLogPage';
 import { CopyDownloadRecovery } from '@/components/CopyDownloadRecovery';
-import { beginExportLog, exportLogError, exportRelease } from '@/lib/export-log';
-import { createExportReceiptQueue, createReceiptStore } from '@/lib/export-receipts';
+import { beginExportLog, exportLogError } from '@/lib/export-log';
 import { WorkspacePanels } from '@/components/WorkspacePanels';
 import { StudioLink, ToolHome } from '@/components/ToolHome';
-import { workspaceTools } from '@/lib/workspace-tools';
+import { workspaceTools, type WorkspaceToolId } from '@/lib/workspace-tools';
 import { readWorkspaceRoute, workspaceHref, type WorkspaceRoute } from '@/lib/workspace-route';
-import { trackGrowthEvent } from '@/lib/growth-analytics';
-import { RewardHeaderButton, RewardPromotion } from '@/components/RewardPromotion';
-import {
-  OfficialAccountDialog,
-  officialAccountId,
-  type OfficialAccountPlacement,
-} from '@/components/OfficialAccountDialog';
 import { parseChatRecord } from '@/lib/parser';
 import {
   activeProjectStorageKey,
@@ -49,28 +38,6 @@ import {
   type ChatProject,
   type ChatProjectSnapshot,
 } from '@/lib/project-store';
-import {
-  messageCountBucket,
-  participantCountBucket,
-  trackProductEvent,
-  type WechatTool,
-} from '@/lib/product-analytics';
-import {
-  AccountApiError,
-  captureExportIdentity, isExportIdentityCurrent,
-  type ExportIdentity,
-  verifyAccountEmail, pendingInvite, visitInvite, completeAccountExport,
-  consumeAccountExport,
-  releaseAccountExport,
-  loggedOutQuota, requireExportLogin,
-  loginAccount,
-  logoutAccount,
-  redeemFollowBonus,
-  registerAccount,
-  restoreAccount,
-  type AccountSession,
-  type ExportQuota,
-} from '@/lib/account-api';
 import { createSameTemplateUrl, readSameTemplateHash } from '@/lib/share-link';
 import type { ChatUser, ChatMessage, PhoneSettings } from '@/types';
 
@@ -91,20 +58,9 @@ const defaultSettings: PhoneSettings = {
 };
 
 function App() {
-  const [officialAccountPrompt, setOfficialAccountPrompt] = useState<OfficialAccountPlacement | null>(null);
-  const [accountPrompt, setAccountPrompt] = useState(false);
-  const [paymentPrompt, setPaymentPrompt] = useState(false);
-  const [accountSession, setAccountSession] = useState<AccountSession | null>(null);
-  const accountSessionRef = useRef(accountSession);
-  useEffect(() => { accountSessionRef.current = accountSession }, [accountSession]);
-  const [visibleQuota, setVisibleQuota] = useState<ExportQuota>(() => loggedOutQuota());
-  const unlimited = Boolean(visibleQuota.membership?.active && Date.parse(visibleQuota.membership.expires_at || '') > Date.now());
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [accountError, setAccountError] = useState('');
-  const [redeemMessage, setRedeemMessage] = useState('');
   const [route, setRoute] = useState<WorkspaceRoute>(() => readWorkspaceRoute(window.location.href));
   const isWorking = route !== 'home' && route !== 'resources' && route !== 'exports';
-  const activeTool: WechatTool = isWorking ? route : 'chat';
+  const activeTool: WorkspaceToolId = isWorking ? route : 'chat';
   const { request: confirmation, confirm, resolve: resolveConfirmation } = useConfirm();
   const [chatSection, setChatSection] = useState<'content' | 'people' | 'settings' | 'projects'>('content');
   const navigate = useCallback((next: WorkspaceRoute) => {
@@ -126,7 +82,7 @@ function App() {
   useEffect(() => {
     // Each independently addressable work page gets its own browser-tab title.
     const title = workspaceTools.find(tool => tool.id === route)?.title || (route === 'exports' ? '导出日志' : route === 'resources' ? '模板与指南' : '工具概览');
-    document.title = `${title} · 微信创作工具箱`;
+    document.title = `${title} · 微信聊天生成器`;
   }, [route]);
   const [importText, setImportText] = useState('');
   const [users, setUsers] = useState<ChatUser[]>([]);
@@ -146,26 +102,8 @@ function App() {
   const [exporting, setExporting] = useState(false);
   const [copyFallback, setCopyFallback] = useState<{ blob: Blob; filename: string; ownerId: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const dialogTracked = useRef(false);
-  const inviteLandingTracked = useRef(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const restoredProjectTracked = useRef(false);
   const skipNextSave = useRef(false);
-
-  useEffect(() => {
-    void trackProductEvent('page_view');
-    if (!inviteLandingTracked.current && /^[\w-]{16}$/.test(new URLSearchParams(window.location.search).get('invite') || '')) {
-      inviteLandingTracked.current = true; trackGrowthEvent('invite_landing_viewed');
-    }
-    void restoreAccount().then(session => {
-      if (session) {
-        setAccountSession(session);
-        setVisibleQuota(session.quota);
-      }
-    }).catch(() => {
-      // The editor remains usable when the account service is temporarily unavailable.
-    });
-  }, []);
 
   useEffect(() => {
     if (!isWorking) return;
@@ -174,7 +112,6 @@ function App() {
     } catch {
       // Tool switching still works for the current page session.
     }
-    void trackProductEvent('tool_selected', { tool: activeTool });
   }, [activeTool, isWorking]);
 
   useEffect(() => {
@@ -208,9 +145,7 @@ function App() {
           setActiveProjectName(`${projectName(sharedSnapshot)} 同款`);
           setActiveProjectCreatedAt(null);
           setSaveState('idle');
-          dialogTracked.current = sharedSnapshot.messages.length > 0;
           window.history.replaceState(null, '', workspaceHref('chat', window.location.href));
-          void trackProductEvent('shared_template_opened');
           return;
         }
 
@@ -232,13 +167,6 @@ function App() {
           setActiveProjectName(active.name);
           setActiveProjectCreatedAt(active.createdAt);
           setSaveState('saved');
-          dialogTracked.current = active.messages.length > 0;
-          if (!restoredProjectTracked.current) {
-            restoredProjectTracked.current = true;
-            void trackProductEvent('project_reopened', {
-              message_count_bucket: messageCountBucket(active.messages.length),
-            });
-          }
         }
       } catch {
         if (!cancelled) {
@@ -291,11 +219,6 @@ function App() {
         } catch {
           // IndexedDB remains the source of truth when localStorage is unavailable.
         }
-        if (isNewProject) {
-          void trackProductEvent('project_created', {
-            creation_source: messages.length > 0 ? 'editor' : 'import_draft',
-          });
-        }
       }).catch(() => {
         setStorageAvailable(false);
         setSaveState('error');
@@ -316,15 +239,6 @@ function App() {
     users,
   ]);
 
-  useEffect(() => {
-    if (dialogTracked.current || messages.length === 0) return;
-    dialogTracked.current = true;
-    void trackProductEvent('dialog_created', {
-      message_count_bucket: messageCountBucket(messages.length),
-      participant_count_bucket: participantCountBucket(users.length),
-    });
-  }, [messages.length, users.length]);
-
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -337,251 +251,7 @@ function App() {
     return () => window.removeEventListener(exportLogError, warn);
   }, [showToast]);
 
-  const openOfficialAccountPrompt = useCallback((placement: OfficialAccountPlacement) => {
-    if (placement === 'export') {
-      try {
-        if (localStorage.getItem('wechat-dialog-generator:official-account-export-prompted')) return;
-        localStorage.setItem('wechat-dialog-generator:official-account-export-prompted', '1');
-      } catch {
-        // The prompt still works when browser storage is unavailable.
-      }
-    }
-    setRedeemMessage('');
-    setOfficialAccountPrompt(placement);
-    void trackProductEvent('official_account_prompt_viewed', { placement });
-  }, []);
-
-  const closeOfficialAccountPrompt = useCallback(() => setOfficialAccountPrompt(null), []);
-
-  const copyOfficialAccountId = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(officialAccountId);
-      void trackProductEvent('official_account_id_copied', {
-        placement: officialAccountPrompt ?? 'header',
-      });
-      showToast('公众号 ID 已复制，请到微信搜索关注');
-    } catch {
-      showToast(`请在微信搜索：${officialAccountId}`);
-    }
-  }, [officialAccountPrompt, showToast]);
-
-  const promptAfterExport = useCallback(() => {
-    window.setTimeout(() => openOfficialAccountPrompt('export'), 700);
-  }, [openOfficialAccountPrompt]);
-
-  const handleLogin = useCallback(async (email: string, password: string) => {
-    setAccountBusy(true);
-    setAccountError('');
-    try {
-      const session = await loginAccount(email, password);
-      setAccountSession(session);
-      setVisibleQuota(session.quota);
-      setAccountPrompt(false);
-      showToast('登录成功');
-    } catch (error) {
-      setAccountError(error instanceof Error ? error.message : '登录失败，请稍后重试');
-    } finally {
-      setAccountBusy(false);
-    }
-  }, [showToast]);
-
-  const handleRegister = useCallback(async (email: string, password: string, displayName: string, challengeId: string, code: string) => {
-    setAccountBusy(true);
-    setAccountError('');
-    try {
-      const session = await registerAccount(email, password, displayName, challengeId, code);
-      setAccountSession(session);
-      setVisibleQuota(session.quota);
-      setAccountPrompt(false);
-      showToast('邮箱已验证，20 次奖励已到账');
-    } catch (error) {
-      setAccountError(error instanceof Error ? error.message : '注册失败，请稍后重试');
-    } finally {
-      setAccountBusy(false);
-    }
-  }, [showToast]);
-
-  const handleLogout = useCallback(async () => {
-    setAccountBusy(true);
-    try {
-      await logoutAccount();
-      setAccountSession(null);
-      setVisibleQuota(loggedOutQuota());
-      setAccountPrompt(false);
-      showToast('已退出登录');
-    } finally {
-      setAccountBusy(false);
-    }
-  }, [showToast]);
-
-  const [shareOpen, setShareOpen] = useState(false);
-  const closeAccount = useCallback(() => setAccountPrompt(false), []);
-  const closeShare = useCallback(() => setShareOpen(false), []);
-  useEffect(() => {
-    const code = pendingInvite();
-    if (code && accountSession?.user.email_verified_at) void visitInvite(code).catch(() => {});
-  }, [accountSession?.user.email_verified_at]);
-  const handleVerify = useCallback(async (email: string, challengeId: string, code: string) => {
-    setAccountBusy(true); setAccountError('');
-    try { const result = await verifyAccountEmail(email, challengeId, code); setAccountSession(result); setVisibleQuota(result.quota); showToast(`验证成功，${result.granted} 次奖励已到账`); }
-    catch (error) { setAccountError(error instanceof Error ? error.message : '验证失败'); }
-    finally { setAccountBusy(false); }
-  }, [showToast]);
-  const exportIdentities = useRef(new Map<string, ExportIdentity>());
-  const [receiptQueue] = useState(() => createExportReceiptQueue({
-    store: createReceiptStore(() => localStorage),
-    identity: () => {
-      const identity = captureExportIdentity(accountSessionRef.current);
-      return identity.userId && isExportIdentityCurrent(identity)
-        ? { userId: identity.userId, credential: identity.credential } : null;
-    },
-    confirm: async (id, identity, signal) => {
-      const result = await completeAccountExport(id, identity, signal);
-      if (result.quota && isExportIdentityCurrent(identity) && accountSessionRef.current?.user.id === identity.userId) {
-        setVisibleQuota(result.quota);
-        setAccountSession(current => current?.user.id === identity.userId ? { ...current, quota: result.quota! } : current);
-      }
-    },
-    online: () => navigator.onLine,
-    onPending: () => showToast('图片已生成，成功记录待同步；联网后会自动重试，不会重复扣额度。'),
-    onAuthRequired: () => {
-      setAccountError('图片已生成，请重新登录原账号以同步成功记录，不会重复扣额度。');
-      setAccountPrompt(true);
-    },
-    onRejected: () => showToast('图片已生成，但成功记录无法确认；请保留本地导出日志联系反馈，不要重复导出。'),
-    onStorageUnavailable: () => showToast('浏览器禁止保存待同步记录，请保持页面打开，联网后自动重试。'),
-  }));
-  const [releaseQueue] = useState(() => createExportReceiptQueue({
-    store: createReceiptStore(() => localStorage, 'wechat-toolbox:export-release:v1:'),
-    identity: () => {
-      const identity = captureExportIdentity(accountSessionRef.current);
-      return identity.userId && isExportIdentityCurrent(identity) ? { userId: identity.userId, credential: identity.credential } : null;
-    },
-    confirm: releaseAccountExport,
-    online: () => navigator.onLine,
-  }));
-  useEffect(() => {
-    const release = (event: Event) => {
-      const id = (event as CustomEvent<string>).detail, identity = exportIdentities.current.get(id);
-      if (!identity?.userId) return;
-      releaseQueue.enqueue(id, identity.userId);
-      exportIdentities.current.delete(id);
-    };
-    window.addEventListener(exportRelease, release);
-    return () => window.removeEventListener(exportRelease, release);
-  }, [releaseQueue]);
-  useEffect(() => {
-    let restoring = false;
-    const resume = () => {
-      void receiptQueue.resume();
-      void releaseQueue.resume();
-      // A reload while offline may not have restored the account yet.
-      if ((!accountSessionRef.current || !isExportIdentityCurrent(captureExportIdentity(accountSessionRef.current))) && !restoring) {
-        restoring = true;
-        void restoreAccount().then(session => {
-          if (session) { setAccountSession(session); setVisibleQuota(session.quota); }
-        }).catch(() => {}).finally(() => { restoring = false; });
-      }
-    };
-    const visible = () => { if (document.visibilityState === 'visible') resume(); };
-    receiptQueue.start();
-    releaseQueue.start();
-    window.addEventListener('online', resume);
-    window.addEventListener('pageshow', resume);
-    window.addEventListener('focus', resume);
-    window.addEventListener('storage', resume);
-    document.addEventListener('visibilitychange', visible);
-    return () => {
-      receiptQueue.stop();
-      releaseQueue.stop();
-      window.removeEventListener('online', resume);
-      window.removeEventListener('pageshow', resume);
-      window.removeEventListener('focus', resume);
-      window.removeEventListener('storage', resume);
-      document.removeEventListener('visibilitychange', visible);
-    };
-  }, [receiptQueue, releaseQueue]);
-  useEffect(() => { void receiptQueue.flush(); void releaseQueue.flush(); }, [accountSession, receiptQueue, releaseQueue]);
-  const completeExport = useCallback((ticket: string | boolean | undefined) => {
-    if (typeof ticket === 'string') {
-      const identity = exportIdentities.current.get(ticket);
-      if (!identity?.userId) return;
-      receiptQueue.enqueue(ticket, identity.userId);
-      exportIdentities.current.delete(ticket);
-    }
-  }, [receiptQueue]);
-
-  const applyExportQuota = useCallback((identity: ExportIdentity, quota: ExportQuota) => {
-    if (!isExportIdentityCurrent(identity) || (accountSessionRef.current?.user.id ?? null) !== identity.userId) return;
-    setVisibleQuota(quota);
-    setAccountSession(current => current?.user.id === identity.userId ? { ...current, quota } : current);
-  }, []);
-  const exportIdentity = captureExportIdentity(accountSession);
-
-  const ensureExportLogin = useCallback(() => {
-    try { requireExportLogin(exportIdentity); return true; }
-    catch {
-      setAccountError('请先登录后导出，编辑内容和预览会保留。');
-      setAccountPrompt(true);
-      return false;
-    }
-  }, [exportIdentity]);
-
-  const authorizeExport = useCallback(async (actionId: string = crypto.randomUUID()) => {
-    try {
-      const identity = exportIdentity;
-      requireExportLogin(identity);
-      const reservation = await consumeAccountExport(actionId, identity);
-      exportIdentities.current.set(reservation.action_id, identity);
-      applyExportQuota(identity, reservation.quota);
-      return reservation.action_id;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '暂时无法确认导出额度';
-      showToast(message);
-      if (error instanceof AccountApiError && error.status === 401) {
-        setAccountError('请先登录后导出，编辑内容和预览会保留。');
-        setAccountPrompt(true);
-      }
-      if (error instanceof AccountApiError && error.code === 'quota_exhausted') {
-        if (accountSession) openOfficialAccountPrompt('export');
-        else {
-          setAccountError('请先登录后导出。');
-          setAccountPrompt(true);
-        }
-      }
-      return false;
-    }
-  }, [accountSession, exportIdentity, applyExportQuota, openOfficialAccountPrompt, showToast]);
-
-  const batchOwners = useRef(new Map<string, string>());
-  const debitBatchExport = useCallback(async (id: string) => {
-    const identity = exportIdentity;
-    if (!ensureExportLogin()) throw new AccountApiError(401, 'login_required', '请先登录后导出。');
-    requireExportLogin(identity);
-    const owner = identity.userId!;
-    const previousOwner = batchOwners.current.get(id);
-    if (previousOwner && previousOwner !== owner) throw new Error('账号已切换，请回到原账号重试这张卡片，避免重复扣费。');
-    batchOwners.current.set(id, owner);
-    const result = await consumeAccountExport(id, identity);
-    exportIdentities.current.set(id, identity);
-    applyExportQuota(identity, result.quota);
-  }, [exportIdentity, applyExportQuota, ensureExportLogin]);
-
-  const handleRedeem = useCallback(async (code: string) => {
-    setAccountBusy(true);
-    setRedeemMessage('');
-    try {
-      const result = await redeemFollowBonus(code);
-      setVisibleQuota(result.quota);
-      setAccountSession(current => current ? { ...current, quota: result.quota } : current);
-      setRedeemMessage(`领取成功，已增加 ${result.granted} 次导出额度。`);
-      showToast(`已领取 ${result.granted} 次额外导出额度`);
-    } catch (error) {
-      setRedeemMessage(error instanceof Error ? error.message : '兑换失败，请稍后重试');
-    } finally {
-      setAccountBusy(false);
-    }
-  }, [showToast]);
+  const authorizeExport = useCallback(async (actionId: string = crypto.randomUUID()) => actionId, []);
 
   const persistCurrentProject = useCallback(async () => {
     if (!storageAvailable) return;
@@ -599,11 +269,6 @@ function App() {
     };
     await saveProject(project);
     setProjects(current => [project, ...current.filter(item => item.id !== id)]);
-    if (!activeProjectId) {
-      void trackProductEvent('project_created', {
-        creation_source: messages.length > 0 ? 'editor' : 'import_draft',
-      });
-    }
   }, [
     activeProjectCreatedAt,
     activeProjectId,
@@ -627,7 +292,6 @@ function App() {
     setActiveProjectName('');
     setActiveProjectCreatedAt(null);
     setSaveState('idle');
-    dialogTracked.current = false;
     try {
       localStorage.removeItem(activeProjectStorageKey);
     } catch {
@@ -663,15 +327,11 @@ function App() {
     setActiveProjectName(project.name);
     setActiveProjectCreatedAt(project.createdAt);
     setSaveState('saved');
-    dialogTracked.current = project.messages.length > 0;
     try {
       localStorage.setItem(activeProjectStorageKey, project.id);
     } catch {
       // Project switching still works for the current page session.
     }
-    void trackProductEvent('project_reopened', {
-      message_count_bucket: messageCountBucket(project.messages.length),
-    });
     showToast(`已打开“${project.name}”`);
   }, [activeProjectId, persistCurrentProject, showToast]);
 
@@ -680,7 +340,6 @@ function App() {
       const duplicate = copyProject(source);
       await saveProject(duplicate);
       setProjects(current => [duplicate, ...current]);
-      void trackProductEvent('project_duplicated');
       showToast(`已复制“${source.name}”`);
     } catch {
       showToast('复制项目失败');
@@ -699,17 +358,16 @@ function App() {
     }
   }, [activeProjectId, confirm, resetEditor, showToast]);
 
-  const handleUseTemplate = useCallback((content: string, templateId: string) => {
+  const handleUseTemplate = useCallback((content: string) => {
     setImportText(content);
     navigate('chat');
     setChatSection('content');
-    void trackProductEvent('template_used', { tool: 'chat', template_id: templateId });
     editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     showToast('模板已载入，点击“解析并导入”即可预览');
   }, [showToast, navigate]);
-  const handleGuideTemplate = useCallback(async (content: string, templateId: string) => {
+  const handleGuideTemplate = useCallback(async (content: string) => {
     if ((importText.trim() || messages.length) && importText !== content && !await confirm({ title: '载入教程示例？', description: '示例会替换聊天页的导入文本，右侧预览暂不改变。之后点击“解析并导入”才会重建消息；需要保留现有内容时，请先确认本地草稿已保存。', confirmText: '载入示例文本' })) return;
-    handleUseTemplate(content, templateId);
+    handleUseTemplate(content);
   }, [importText, messages.length, confirm, handleUseTemplate]);
 
   const handleShareSame = useCallback(async () => {
@@ -721,7 +379,6 @@ function App() {
     try {
       const snapshot: ChatProjectSnapshot = { importText, users, messages, settings, selfId };
       const url = await createSameTemplateUrl(snapshot, window.location.href);
-      void trackProductEvent('shared_template_created');
       if (navigator.share) {
         await navigator.share({
           title: `${activeProjectName.trim() || settings.contactName || '微信对话'}同款模板`,
@@ -810,7 +467,7 @@ function App() {
       if (!canvas) { void log.finish('failed', '未能获取聊天预览'); return; }
       log.stage('authorize');
       const ticket = await authorizeExport(log.id);
-      if (!ticket) { void log.finish('cancelled', '额度校验未通过'); return; }
+      if (!ticket) { void log.finish('cancelled', '导出未授权'); return; }
       log.action(ticket);
       log.stage('encode');
       const link = document.createElement('a');
@@ -819,15 +476,7 @@ function App() {
       log.stage('download');
       link.click();
       void log.finish('download_requested');
-      completeExport(ticket);
-      void trackProductEvent('image_exported', {
-        ...(typeof ticket === 'string' ? { action_id: ticket } : {}),
-        capture_mode: 'standard',
-        message_count_bucket: messageCountBucket(messages.length),
-        tool: 'chat',
-      });
       showToast('图片已生成并下载！');
-      promptAfterExport();
     } catch (e: unknown) {
       void log.finish('failed', '图片生成或下载操作失败', e);
       showToast('生成失败：' + (e instanceof Error ? e.message : String(e)));
@@ -835,7 +484,7 @@ function App() {
       exportBusy.current = false;
       setExporting(false);
     }
-  }, [showToast, capturePhone, messages.length, promptAfterExport, authorizeExport, completeExport]);
+  }, [showToast, capturePhone, authorizeExport]);
 
   const handleCopyImage = useCallback(async () => {
     if (!phoneRef.current || exportBusy.current) return;
@@ -852,33 +501,25 @@ function App() {
       if (!blob) { void log.finish('failed', '图片转换失败'); return; }
       log.stage('authorize');
       const ticket = await authorizeExport(log.id);
-      if (!ticket) { void log.finish('cancelled', '额度校验未通过'); return; }
+      if (!ticket) { void log.finish('cancelled', '导出未授权'); return; }
       log.action(ticket);
-      const owner = exportIdentities.current.get(ticket);
-      if (!owner?.userId || !isExportIdentityCurrent(owner)) throw new Error('账号已切换，请重新导出；本次未扣额度。');
       log.stage('clipboard');
       const filename = '微信聊天记录_' + Date.now() + '.png';
       const outcome = await copyOrDownload(blob, {
         copy: data => navigator.clipboard.write([new ClipboardItem({ 'image/png': data })]),
         download: data => { log.stage('download'); downloadPng(data, filename); },
       });
-      void log.finish(outcome, outcome === 'download_requested' ? '浏览器未允许复制，已自动改为下载同一图片，仅确认一次额度。' : '');
-      completeExport(ticket);
-      if (outcome === 'download_requested') setCopyFallback({ blob, filename, ownerId: owner.userId });
-      void trackProductEvent('image_exported', {
-        action_id: ticket, capture_mode: 'clipboard',
-        message_count_bucket: messageCountBucket(messages.length), tool: 'chat',
-      });
-      showToast(outcome === 'copied' ? '图片已复制到剪贴板！' : '浏览器未允许复制，已改为下载同一张图片，不重复扣额度。');
-      promptAfterExport();
+      void log.finish(outcome, outcome === 'download_requested' ? '浏览器未允许复制，已自动改为下载同一图片。' : '');
+      if (outcome === 'download_requested') setCopyFallback({ blob, filename, ownerId: '' });
+      showToast(outcome === 'copied' ? '图片已复制到剪贴板！' : '浏览器未允许复制，已改为下载同一张图片。');
     } catch (error) {
       void log.finish('failed', '图片生成失败', error);
-      showToast(error instanceof Error ? error.message : '图片导出失败，本次未扣额度');
+      showToast(error instanceof Error ? error.message : '图片导出失败');
     } finally {
       exportBusy.current = false;
       setExporting(false);
     }
-  }, [showToast, capturePhone, messages.length, promptAfterExport, authorizeExport, completeExport]);
+  }, [showToast, capturePhone, authorizeExport]);
 
   const handleGenerateLongImage = useCallback(async () => {
     if (!phoneRef.current || exportBusy.current) return;
@@ -893,7 +534,7 @@ function App() {
       if (!canvas) { void log.finish('failed', '未能获取聊天预览'); return; }
       log.stage('authorize');
       const ticket = await authorizeExport(log.id);
-      if (!ticket) { void log.finish('cancelled', '额度校验未通过'); return; }
+      if (!ticket) { void log.finish('cancelled', '导出未授权'); return; }
       log.action(ticket);
       log.stage('encode');
       const link = document.createElement('a');
@@ -902,15 +543,7 @@ function App() {
       log.stage('download');
       link.click();
       void log.finish('download_requested');
-      completeExport(ticket);
-      void trackProductEvent('image_exported', {
-        ...(typeof ticket === 'string' ? { action_id: ticket } : {}),
-        capture_mode: 'long',
-        message_count_bucket: messageCountBucket(messages.length),
-        tool: 'chat',
-      });
       showToast('长截图已生成并下载！');
-      promptAfterExport();
     } catch (e: unknown) {
       void log.finish('failed', '长图生成或下载操作失败', e);
       showToast('生成失败：' + (e instanceof Error ? e.message : String(e)));
@@ -918,7 +551,7 @@ function App() {
       exportBusy.current = false;
       setExporting(false);
     }
-  }, [showToast, capturePhone, messages.length, promptAfterExport, authorizeExport, completeExport]);
+  }, [showToast, capturePhone, authorizeExport]);
 
   const hasMessages = messages.length > 0;
 
@@ -926,40 +559,33 @@ function App() {
     <>
       <div className={`studio-app ${isWorking ? 'is-working' : ''}`}>
         <header className="studio-header">
-          <StudioLink route="home" onNavigate={navigate} className="studio-brand"><span><MessageSquare size={19} /></span><strong>微信创作工具箱</strong></StudioLink>
+          <StudioLink route="home" onNavigate={navigate} className="studio-brand"><span><MessageSquare size={19} /></span><strong>微信聊天生成器</strong></StudioLink>
           <div className="studio-breadcrumb"><span>/</span><span>{isWorking ? '工作空间' : '创作中心'}</span><ChevronRight size={14} /><b>{workspaceTools.find(tool => tool.id === route)?.title || (route === 'exports' ? '导出日志' : route === 'resources' ? '模板与指南' : '工具概览')}</b></div>
           <div className="studio-header-actions">
             {(isWorking || route === 'exports') && <Button variant="outline" size="sm" className="studio-guide-action" type="button" aria-label="查看当前功能教程" title="查看当前功能教程" onClick={() => openGuide(route === 'exports' ? 'exports' : activeTool)}><BookOpen size={16} /><span>使用教程</span></Button>}
-            <UpdateAnnouncement blocked={accountPrompt || paymentPrompt || shareOpen || officialAccountPrompt !== null || Boolean(confirmation)} onOpenGuide={() => openGuide('start')} />
-            <Button variant="outline" size="sm" className="studio-official-account-action" type="button" aria-label="关注公众号" title="关注公众号" onClick={() => openOfficialAccountPrompt('header')}><MessageCircle size={17} /><span>公众号</span></Button>
-            <RewardHeaderButton onClick={() => setShareOpen(true)} />
-            <Button className="account-trigger" type="button" aria-label={`账户：${accountSession?.user.display_name ?? '未登录'}，${!accountSession ? '登录后导出' : unlimited ? '会员不限次' : `剩余 ${visibleQuota.total_remaining} 次`}`} onClick={() => { setAccountError(''); setAccountPrompt(true) }}><UserRound size={15} /><span>{accountSession ? accountSession.user.display_name : '登录'}</span><small>{!accountSession ? '导出需登录' : unlimited ? '会员' : `${visibleQuota.total_remaining} 次`}</small></Button>
+            <UpdateAnnouncement blocked={Boolean(confirmation)} onOpenGuide={() => openGuide('start')} />
           </div>
         </header>
         <div className="studio-layout">
           <aside className="studio-sidebar" aria-label="工作空间导航">
             <StudioLink route="home" onNavigate={navigate} aria-label="工具概览" title="工具概览" className={`studio-overview-link ${route === 'home' ? 'is-active' : ''}`} aria-current={route === 'home' ? 'page' : undefined}><LayoutGrid size={17} /><span>工具概览</span></StudioLink>
             <div className="studio-nav-label">创作工具 <span>07</span></div>
-            <nav className="studio-tool-nav" aria-label="微信创作工具箱">{workspaceTools.map(tool => <StudioLink key={tool.id} route={tool.id} onNavigate={navigate} className={route === tool.id ? 'is-active' : ''} aria-label={tool.title} title={tool.title} aria-current={route === tool.id ? 'page' : undefined}><tool.icon size={17} /><span>{tool.title}</span>{tool.id === 'batch' && <small>批量</small>}</StudioLink>)}</nav>
+            <nav className="studio-tool-nav" aria-label="微信聊天生成器">{workspaceTools.map(tool => <StudioLink key={tool.id} route={tool.id} onNavigate={navigate} className={route === tool.id ? 'is-active' : ''} aria-label={tool.title} title={tool.title} aria-current={route === tool.id ? 'page' : undefined}><tool.icon size={17} /><span>{tool.title}</span>{tool.id === 'batch' && <small>批量</small>}</StudioLink>)}</nav>
             <StudioLink route="exports" onNavigate={navigate} aria-label="导出日志" title="导出日志" className={`studio-overview-link ${route === 'exports' ? 'is-active' : ''}`} aria-current={route === 'exports' ? 'page' : undefined}><History size={17} /><span>导出日志</span></StudioLink>
             <div className="studio-sidebar-bottom">
               <StudioLink route="resources" onNavigate={navigate} aria-label="模板与指南" title="模板与指南" className={`studio-overview-link ${route === 'resources' ? 'is-active' : ''}`} aria-current={route === 'resources' ? 'page' : undefined}><BookOpen size={17} /> 模板与指南</StudioLink>
-              <Button variant="outline" className="studio-quota-card" type="button" onClick={() => { setAccountError(''); setAccountPrompt(true) }}><span>{!accountSession ? '登录后导出' : unlimited ? '会员导出权益' : '可用导出额度'} <ArrowRight size={14} /></span><strong>{!accountSession ? '登录' : unlimited ? '不限次' : visibleQuota.total_remaining}{accountSession && !unlimited && <small> 次</small>}</strong><p>{unlimited ? '次数包与奖励余额保留' : accountSession ? '查看账户与额度明细' : '编辑预览免费 · 导出需登录'}</p></Button>
               <p className="studio-sidebar-note"><ShieldCheck size={13} /> 本地创作 · 隐私优先</p>
             </div>
           </aside>
           <div className="studio-stage">
-            {route === 'exports' && <ExportLogPage onNavigate={navigate} onRequestLogin={() => setAccountPrompt(true)} />}
-            {route === 'home' && <div className="studio-page-scroll"><ToolHome onNavigate={navigate} hasDraft={hasMessages} promotion={<RewardPromotion session={accountSession} refreshKey={`${accountPrompt}:${shareOpen}`} onShare={() => setShareOpen(true)} onAccount={() => { setAccountError(''); setAccountPrompt(true); }} />} /></div>}
-            {route === 'resources' && <GuideCenter onNavigate={navigate} onUseTemplate={(content, id) => { void handleGuideTemplate(content, id); }} onAccount={() => { setAccountError(''); setAccountPrompt(true); }} />}
+            {route === 'exports' && <ExportLogPage onNavigate={navigate} />}
+            {route === 'home' && <div className="studio-page-scroll"><ToolHome onNavigate={navigate} hasDraft={hasMessages} /></div>}
+            {route === 'resources' && <GuideCenter onNavigate={navigate} onUseTemplate={content => { void handleGuideTemplate(content); }} />}
             {isWorking && <h1 className="studio-work-title sr-only">{workspaceTools.find(tool => tool.id === activeTool)?.title}</h1>}
-            <div className="studio-tool-page" hidden={route !== 'batch'}><BatchStudio currentChat={{ users, messages, settings, selfId }} loggedIn={!!accountSession} onRequireLogin={ensureExportLogin} remaining={visibleQuota.total_remaining} unlimited={unlimited} onDebit={debitBatchExport} onComplete={id => {
-              completeExport(id);
-              void trackProductEvent('image_exported', { action_id: id, capture_mode: 'standard', tool: 'batch' });
-            }} /></div>
+            <div className="studio-tool-page" hidden={route !== 'batch'}><BatchStudio currentChat={{ users, messages, settings, selfId }} /></div>
             <div className="studio-tool-page" hidden={route !== 'chat'} id="editor" ref={editorRef}>
               <WorkspacePanels previewTitle="聊天效果预览" previewDescription="可滚动查看消息 · 导出宽度 1125px" preview={<PhonePreview users={users} messages={messages} settings={settings} selfId={selfId} phoneRef={phoneRef} onUpdateMessage={handleUpdateMessage} />}
-                previewActions={<div className="chat-export-actions"><div className="chat-export-summary"><span>{messages.length} 条消息 · {users.length} 个角色</span><span>{unlimited ? '会员不限次' : `剩余 ${visibleQuota.total_remaining} 次`}</span></div><Button type="button" className="btn btn-primary chat-export-primary" disabled={!hasMessages || exporting} onClick={handleGenerateImage}><Download size={16} /> 生成图片</Button><div className="chat-export-secondary"><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleGenerateLongImage}><ImageIcon size={15} /> 长截图</Button><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleCopyImage}><Copy size={15} /> 复制</Button><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleShareSame}><Share2 size={15} /> 同款链接</Button></div>{copyFallback && <CopyDownloadRecovery onDownload={() => { if (!ensureExportLogin()) return; if (accountSessionRef.current?.user.id !== copyFallback.ownerId) { showToast('请登录生成这张图片时的账号后重新下载，不会重复扣额度。'); return; } try { downloadPng(copyFallback.blob, copyFallback.filename); } catch { showToast('浏览器未允许下载，请检查下载权限后重试，不会重复扣额度。'); } }} />}</div>}>
+                previewActions={<div className="chat-export-actions"><div className="chat-export-summary"><span>{messages.length} 条消息 · {users.length} 个角色</span></div><Button type="button" className="btn btn-primary chat-export-primary" disabled={!hasMessages || exporting} onClick={handleGenerateImage}><Download size={16} /> 生成图片</Button><div className="chat-export-secondary"><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleGenerateLongImage}><ImageIcon size={15} /> 长截图</Button><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleCopyImage}><Copy size={15} /> 复制</Button><Button type="button" className="btn btn-outline" disabled={!hasMessages || exporting} onClick={handleShareSame}><Share2 size={15} /> 同款链接</Button></div>{copyFallback && <CopyDownloadRecovery onDownload={() => { try { downloadPng(copyFallback.blob, copyFallback.filename); } catch { showToast('浏览器未允许下载，请检查下载权限后重试。'); } }} />}</div>}>
                 <div className="chat-project-bar"><label><span>当前对话</span><Input aria-label="工作页项目名称" placeholder="未命名对话" value={activeProjectName} maxLength={48} onChange={event => setActiveProjectName(event.target.value)} /></label><span className={`studio-save-state is-${saveState}`}>{saveState === 'saved' ? <><Check size={13} /> 已自动保存</> : saveState === 'saving' ? '保存中…' : saveState === 'error' ? '本地保存失败' : '仅保存在本机'}</span></div>
                 <Tabs value={chatSection} onValueChange={value => setChatSection(value as typeof chatSection)}>
                 <TabsList variant="line" className="studio-section-tabs" aria-label="聊天编辑面板">{([{ id: 'content', label: '聊天内容', icon: MessageSquare }, { id: 'people', label: '角色头像', icon: UsersRound }, { id: 'settings', label: '手机样式', icon: Settings2 }, { id: 'projects', label: '本地草稿', icon: FolderOpen }] as const).map(item => <TabsTrigger key={item.id} value={item.id}><item.icon size={15} />{item.label}</TabsTrigger>)}</TabsList>
@@ -974,44 +600,14 @@ function App() {
                 </Tabs>
               </WorkspacePanels>
             </div>
-            <div className="studio-tool-page" hidden={route !== 'moments'}><MomentsEditor onToast={showToast} onBeforeExport={authorizeExport} onExportSuccess={ticket => {
-              completeExport(ticket); void trackProductEvent('image_exported', { ...(typeof ticket === 'string' ? { action_id: ticket } : {}), capture_mode: 'standard', tool: 'moments' }); promptAfterExport();
-            }} /></div>
-            {(['payment', 'redpacket', 'profile', 'group'] as const).map(kind => <div className="studio-tool-page" key={kind} hidden={route !== kind}><WechatSceneEditor kind={kind} onToast={showToast} onBeforeExport={authorizeExport} onExportSuccess={ticket => {
-              completeExport(ticket); void trackProductEvent('image_exported', { ...(typeof ticket === 'string' ? { action_id: ticket } : {}), capture_mode: 'standard', tool: kind }); promptAfterExport();
-            }} /></div>)}
+            <div className="studio-tool-page" hidden={route !== 'moments'}><MomentsEditor onToast={showToast} onBeforeExport={authorizeExport} /></div>
+            {(['payment', 'redpacket', 'profile', 'group'] as const).map(kind => <div className="studio-tool-page" key={kind} hidden={route !== kind}><WechatSceneEditor kind={kind} onToast={showToast} onBeforeExport={authorizeExport} /></div>)}
           </div>
         </div>
       </div>
 
       <ConfirmDialog open={Boolean(confirmation)} title={confirmation?.title ?? ""} description={confirmation?.description ?? ""} confirmText={confirmation?.confirmText} onOpenChange={open => { if (!open) resolveConfirmation(false); }} onConfirm={() => resolveConfirmation(true)} />
       {toast && <div className="toast-msg">{toast}</div>}
-      <OfficialAccountDialog
-        open={officialAccountPrompt !== null}
-        placement={officialAccountPrompt ?? 'header'}
-        authenticated={accountSession !== null}
-        busy={accountBusy}
-        redeemMessage={redeemMessage}
-        onClose={closeOfficialAccountPrompt}
-        onCopyId={copyOfficialAccountId}
-        onLogin={() => { closeOfficialAccountPrompt(); setAccountError(''); setAccountPrompt(true) }}
-        onRedeem={handleRedeem}
-      />
-      <AccountDialog
-        key={accountSession?.user.id || 'guest'}
-        open={accountPrompt}
-        session={accountSession}
-        busy={accountBusy}
-        error={accountError}
-        onClose={closeAccount}
-        onLogin={handleLogin}
-        onRegister={handleRegister}
-        onVerify={handleVerify}
-        onLogout={handleLogout}
-        onRecharge={() => { setAccountPrompt(false); setPaymentPrompt(true); }}
-      />
-      {paymentPrompt && <PaymentDialog key={accountSession?.user.id || 'guest'} session={accountSession} onClose={() => setPaymentPrompt(false)} onAccount={() => { setPaymentPrompt(false); setAccountError(''); setAccountPrompt(true); }} onQuota={(userId, quota) => { setAccountSession(current => current?.user.id === userId ? { ...current, quota } : current); if (accountSession?.user.id === userId) setVisibleQuota(quota); }} />}
-      {shareOpen && <ShareDialog session={accountSession} onClose={closeShare} onAccount={() => { setShareOpen(false); setAccountError(''); setAccountPrompt(true); }} />}
     </>
   );
 }

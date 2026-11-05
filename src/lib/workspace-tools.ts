@@ -8,3 +8,5 @@ export const workspaceTools = [
   { id: 'profile', title: '个人资料', description: '资料与名片页面', detail: '修改头像、昵称与个人信息，用于设计和创作。', icon: UserRound },
   { id: 'group', title: '群信息', description: '成员、名称与公告', detail: '搭建群聊信息页面，编辑成员、群名称和公告。', icon: UsersRound },
 ] as const
+
+export type WorkspaceToolId = typeof workspaceTools[number]['id']
